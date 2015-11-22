@@ -1,7 +1,6 @@
 <?php
 namespace DoraDRPC\Node;
 
-use DoraDRPC\Base\DoraConst;
 
 class Server extends \DoraDRPC\Base\Server
 {
@@ -12,17 +11,72 @@ class Server extends \DoraDRPC\Base\Server
     //server report
     final public function monitorReport(\swoole_process $process)
     {
+        static $_redisObj;
+
         while (true) {
-            //server static
-            $serverStatic = $this->get_used_status();
+            //register group and server
+            $redisconfig = $this->_config["redis"];
+            //register this node server info to redis
+            foreach ($redisconfig as $redisitem) {
+                //validate redis ip and port
+                if (trim($redisitem["ip"]) && $redisitem["port"] > 0) {
+                    $key = $redisitem["ip"] . "_" . $redisitem["port"];
+                    try {
+                        if (!isset($_redisObj[$key])) {
+                            //if not connect
+                            $_redisObj[$key] = new \Redis();
+                            $_redisObj[$key]->connect($redisitem["ip"], $redisitem["port"]);
+                        }
+                        //register this server
+                        $_redisObj[$key]->sadd("doradrpc.serverlist", json_encode(array("node" => $this->_config["tcp"], "group" => $this->_config["group"])));
+                        //set time out
+                        $_redisObj[$key]->set($this->_config["tcp"]["ip"] . "_" . $this->_config["tcp"]["port"] . "_time", time());
 
-            //server accept msg group
-            $serverGroup = $this->_config["group"]["list"];
+                    } catch (\Exception $ex) {
+                        //var_dump($ex);
+                        $_redisObj[$key] = null;
+                        echo "report to redis server error" . PHP_EOL;
+                    }
+                }
+            }
+            //register this server on redis
+            /*
+                        //report server info
+                        foreach ($this->_config["monitor"] as $configitem) {
 
-            //暂缺 多磁盘空间 系统tcp连接数 swap记录 网卡流量
-            //var_dump($serverStatic);
+                            //server static
+                            $serverStatic = $this->get_used_status();
+
+                            //todo: 多磁盘空间 系统tcp连接数 swap记录 网卡流量
+                            if (trim($configitem["ip"]) != "" && $configitem["port"] > 0) {
+
+                                //prepare data
+                                $data = array(
+                                    "type" => $this->_config["type"],
+                                    "tcp" => $this->_config["tcp"],
+                                    "udp" => $this->_config["udp"],
+                                    "group" => $this->_config["group"],
+                                    "static" => $serverStatic,
+                                );
+
+                                //client
+                                $client = new \swoole_client(SWOOLE_SOCK_UDP, SWOOLE_SOCK_SYNC);
+                                $client->connect($configitem["ip"], $configitem["port"], 1.0);
+                                $client->send(\DoraDRPC\Base\Packet::packEncode($data));
+                                $result = $client->recv();
+
+                                //if have result
+                                if ($result) {
+                                    $result = \DoraDRPC\Base\Packet::packDecode($result);
+                                }
+
+                                $client->close();
+                            }
+                        }
+            */
+
             //sleep 10 sec and report again
-            sleep(10);
+            sleep(1);
         }
     }
 
@@ -82,6 +136,11 @@ class Server extends \DoraDRPC\Base\Server
     {
         //get server config
         $config = $this->_config;
+
+        if ($config["type"] != "node") {
+            echo "Error this config is not for node...Exit";
+            exit(-1);
+        }
 
         //open controller udp port
         $server->addlistener($config["udp"]["ip"], $config["udp"]["port"], SWOOLE_SOCK_UDP);
@@ -217,6 +276,7 @@ class Server extends \DoraDRPC\Base\Server
     //处理具体业务任务，此进程为task内，处理完毕后使用return返回处理结果，有异常拦截处理
     public function callbackDoWork($param)
     {
+        //todo:here for process you work
         return array("oak" => "cda");
     }
 
@@ -246,7 +306,7 @@ class Server extends \DoraDRPC\Base\Server
 
         switch ($data["type"]) {
 
-            case DoraConst::SW_SYNC_SINGLE:
+            case \DoraDRPC\Base\DoraConst::SW_SYNC_SINGLE:
                 $Packet = \DoraDRPC\Base\Packet::packFormat("OK", 0, $data["result"]);
                 $Packet["guid"] = $this->_taskinfo[$fd]["guid"];
                 $Packet = \DoraDRPC\Base\Packet::packEncode($Packet);
@@ -257,7 +317,7 @@ class Server extends \DoraDRPC\Base\Server
                 return true;
                 break;
 
-            case DoraConst::SW_SYNC_MULTI:
+            case \DoraDRPC\Base\DoraConst::SW_SYNC_MULTI:
                 if (count($this->_taskinfo[$fd]["task"]) == 0) {
                     $Packet = \DoraDRPC\Base\Packet::packFormat("OK", 0, $this->_taskinfo[$fd]["result"]);
                     $Packet["guid"] = $this->_taskinfo[$fd]["guid"];

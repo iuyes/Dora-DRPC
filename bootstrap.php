@@ -43,10 +43,21 @@ if ($argc > 1) {
     switch (strtolower(trim($argv[1]))) {
         case "node":
             $config = include(trim($argv[2]));
-            $server = new DoraDRPC\Node\Server($config);
+            if ($config) {
+                $server = new DoraDRPC\Node\Server($config);
+            } else {
+                showhelp();
+            }
 
             break;
         case "monitor":
+            $config = include(trim($argv[2]));
+            if ($config) {
+                $server = new DoraDRPC\Monitor\Server($config);
+            } else {
+                showhelp();
+            }
+
             break;
         case "logserver":
             break;
